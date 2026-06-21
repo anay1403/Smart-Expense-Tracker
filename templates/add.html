@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Expense - Finance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header class="topbar">
+            <h1>Add New Expense</h1>
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">Back to Dashboard</a>
+        </header>
+
+        <section class="form-card">
+            <form method="POST">
+                <div class="form-group">
+                    <label for="description">Description (e.g., Groceries)</label>
+                    <input type="text" id="description" name="description" required placeholder="What did you buy?">
+                </div>
+
+                <div class="form-group">
+                    <label for="amount">Amount (&#8377;)</label>
+                    <input type="number" step="0.01" id="amount" name="amount" required placeholder="0.00">
+                </div>
+
+                <div class="form-group">
+                    <label for="category">Category</label>
+                    <select id="category" name="category" required>
+                        <option value="" disabled selected>Select a category</option>
+                        <option value="Grocery">Grocery</option>
+                        <option value="Food">Food / Dining</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Medical">Medical</option>
+                        <option value="Others">Others</option>
+                        <option disabled>--- Investing / Saving ---</option>
+                        <option value="Assets">Gold / Assets</option>
+                        <option value="Insurance">Insurance</option>
+                        <option value="Savings">Cash Savings / FD</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-block">Log Expense</button>
+            </form>
+        </section>
+    </div>
+</body>
+
+</html>

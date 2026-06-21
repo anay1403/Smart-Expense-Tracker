@@ -1,0 +1,16 @@
+ID,Username,Description,Amount,Category,Date
+17,Amit,Silver,20000.0,Assets,2026-06-21
+16,Amit,food,10000.0,Food,2026-06-21
+15,logesh,house rent,15000.0,Rent,2026-03-24
+14,jeya,mutton,100.0,Food,2026-03-24
+13,jeya,ring,8000.0,Assets,2026-03-24
+12,jeya,fd,2000.0,Savings,2026-03-24
+11,jeya,insurance,1500.0,Insurance,2026-03-24
+10,jeya,food,2000.0,Food,2026-03-24
+9,jeya,house rent,2000.0,Rent,2026-03-24
+8,jeya,grocery,3000.0,Grocery,2026-03-24
+7,admin,soap,25.0,Utilities,2026-03-24
+6,admin,mutton,100.0,Food,2026-03-24
+3,admin,mutton,100.0,Food,2026-03-24
+2,admin,chicken,20.0,Food,2026-03-24
+1,admin,soap,25.0,Utilities,2026-03-24
