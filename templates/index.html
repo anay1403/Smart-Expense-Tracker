@@ -8,6 +8,77 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Month filter bar */
+        .month-bar {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+            padding: 12px 16px;
+            background: var(--surface, #F4F1E8);
+            border: 1px solid var(--border, #D9D4C4);
+            border-radius: 6px;
+        }
+        .month-bar label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--text-muted, #666);
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .month-bar select {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+            padding: 6px 10px;
+            border: 1px solid var(--border, #ccc);
+            border-radius: 4px;
+            background: #fff;
+            color: var(--text, #1A2433);
+            cursor: pointer;
+        }
+        .month-bar .month-label-display {
+            font-family: 'Special Elite', serif;
+            font-size: 1.05rem;
+            color: var(--accent, #B08D3E);
+            margin-left: auto;
+        }
+        /* Download buttons */
+        .download-bar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 18px;
+        }
+        .btn-download {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 7px 16px;
+            font-size: 0.82rem;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            text-decoration: none;
+            transition: opacity 0.15s;
+        }
+        .btn-download:hover { opacity: 0.85; }
+        .btn-dl-csv {
+            background: #2F6B4F;
+            color: #fff;
+        }
+        .btn-dl-pdf {
+            background: #8C2F39;
+            color: #fff;
+        }
+        .dl-icon { font-size: 0.95rem; }
+    </style>
 </head>
 
 <body>
@@ -21,8 +92,33 @@
             </div>
         </header>
 
+        <!-- Month Filter -->
+        <div class="month-bar">
+            <label>Viewing Month:</label>
+            <form method="GET" action="{{ url_for('index') }}" style="display:inline-flex; align-items:center; gap:8px;">
+                <select name="month" onchange="this.form.submit()">
+                    {% for m in available_months %}
+                    <option value="{{ m }}" {% if m == selected_month %}selected{% endif %}>
+                        {{ m }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </form>
+            <span class="month-label-display">{{ month_label }}</span>
+        </div>
+
+        <!-- Download Buttons -->
+        <div class="download-bar">
+            <a class="btn-download btn-dl-csv" href="{{ url_for('download_csv', month=selected_month) }}">
+                <span class="dl-icon">⬇</span> Download CSV
+            </a>
+            <a class="btn-download btn-dl-pdf" href="{{ url_for('download_pdf', month=selected_month) }}">
+                <span class="dl-icon">⬇</span> Download PDF Report
+            </a>
+        </div>
+
         <section class="salary-card">
-            <h2>Monthly Financial Overview</h2>
+            <h2>Monthly Financial Overview — {{ month_label }}</h2>
             <div class="overview-row">
                 <div class="financial-stats stats-grid">
                     <div class="stat-box">
@@ -53,8 +149,7 @@
                     <div class="wealth-stamp">
                         <span class="wealth-stamp-label">Retained</span>
                         <strong class="wealth-stamp-value">
-                            {{ "%.0f"|format((actual_investing + (liquid_savings if liquid_savings > 0 else 0)) / salary
-                            * 100) }}%
+                            {{ "%.0f"|format((actual_investing + (liquid_savings if liquid_savings > 0 else 0)) / salary * 100) }}%
                         </strong>
                     </div>
                 </div>
@@ -62,6 +157,7 @@
             </div>
 
             <form action="{{ url_for('set_salary') }}" method="POST" class="salary-form">
+                <input type="hidden" name="month" value="{{ selected_month }}">
                 <input type="number" step="0.01" name="salary" placeholder="Update Monthly Salary" required>
                 <button type="submit" class="btn btn-sm btn-primary">Update</button>
             </form>
@@ -87,7 +183,7 @@
                         {% endfor %}
                     </ul>
                     {% else %}
-                    <p class="empty-state">No pure spending recorded.</p>
+                    <p class="empty-state">No pure spending recorded for {{ month_label }}.</p>
                     {% endif %}
                 </section>
 
@@ -109,7 +205,7 @@
             </div>
 
             <section class="expenses-card">
-                <h2>Recent Expenses</h2>
+                <h2>Expenses — {{ month_label }}</h2>
                 {% if expenses %}
                 <div class="table-container">
                     <table class="expenses-table">
@@ -130,8 +226,8 @@
                                 <td><span class="badge {{ expense.category|lower }}">{{ expense.category }}</span></td>
                                 <td class="amount">&#8377;{{ "%.2f"|format(expense.amount) }}</td>
                                 <td>
-                                    <form action="{{ url_for('delete', id=expense.id) }}" method="POST"
-                                        style="display:inline;">
+                                    <form action="{{ url_for('delete', id=expense.id) }}" method="POST" style="display:inline;">
+                                        <input type="hidden" name="month" value="{{ selected_month }}">
                                         <button type="submit" class="btn btn-danger btn-sm"
                                             onclick="return confirm('Delete this expense?');">Delete</button>
                                     </form>
@@ -142,13 +238,12 @@
                     </table>
                 </div>
                 {% else %}
-                <p class="empty-state">No expenses found. Time to add some!</p>
+                <p class="empty-state">No expenses for {{ month_label }}. Add some!</p>
                 {% endif %}
             </section>
         </div>
     </div>
 
-    <!-- Include Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
@@ -164,11 +259,7 @@
                         labels: ['Spent', 'Invested', 'Liquid'],
                         datasets: [{
                             data: [spending, investing, liquid],
-                            backgroundColor: [
-                                '#8C2F39',
-                                '#B08D3E',
-                                '#2F6B4F'
-                            ],
+                            backgroundColor: ['#8C2F39', '#B08D3E', '#2F6B4F'],
                             borderColor: '#FBFBF6',
                             borderWidth: 3,
                             hoverOffset: 4
@@ -179,19 +270,13 @@
                         maintainAspectRatio: false,
                         cutout: '75%',
                         plugins: {
-                            legend: {
-                                display: false
-                            },
+                            legend: { display: false },
                             tooltip: {
                                 callbacks: {
                                     label: function (context) {
                                         let label = context.label || '';
-                                        if (label) {
-                                            label += ': ';
-                                        }
-                                        if (context.parsed !== null) {
-                                            label += '₹' + context.parsed.toFixed(2);
-                                        }
+                                        if (label) label += ': ';
+                                        if (context.parsed !== null) label += '₹' + context.parsed.toFixed(2);
                                         return label;
                                     }
                                 }
@@ -203,5 +288,4 @@
         });
     </script>
 </body>
-
 </html>
