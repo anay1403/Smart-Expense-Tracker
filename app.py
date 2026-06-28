@@ -19,26 +19,6 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def sync_to_csv():
-    conn = get_db_connection()
-    expenses = conn.execute('''
-        SELECT e.*, u.username 
-        FROM expenses e 
-        LEFT JOIN users u ON e.user_id = u.id 
-        ORDER BY date_created DESC
-    ''').fetchall()
-    conn.close()
-    if not expenses: return
-    try:
-        with open('expenses.csv', 'w', newline='', encoding='utf-8') as f:
-            writer = csv.writer(f)
-            writer.writerow(['ID', 'Username', 'Description', 'Amount', 'Category', 'Date'])
-            for exp in expenses:
-                date_str = exp['date_created'].split(' ')[0] if exp['date_created'] else ''
-                writer.writerow([exp['id'], exp['username'] or 'admin', exp['description'], exp['amount'], exp['category'], date_str])
-    except PermissionError:
-        print("Warning: 'expenses.csv' is currently open in another program.")
-
 def get_db_connection():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
@@ -84,7 +64,6 @@ def init_db():
         conn.execute('INSERT INTO user_profile (user_id, monthly_salary) VALUES (1, 0)')
     conn.commit()
     conn.close()
-    sync_to_csv()
 
 with app.app_context():
     init_db()
@@ -247,7 +226,6 @@ def add():
                              (session['user_id'], description, float(amount), category))
             conn.commit()
             conn.close()
-            sync_to_csv()
             return redirect(url_for('index'))
     return render_template('add.html')
 
@@ -259,7 +237,6 @@ def delete(id):
     conn.execute('DELETE FROM expenses WHERE id = ? AND user_id = ?', (id, session['user_id']))
     conn.commit()
     conn.close()
-    sync_to_csv()
     return redirect(url_for('index', month=month))
 
 @app.route('/download/csv')
