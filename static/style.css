@@ -526,6 +526,14 @@ option:disabled { color: var(--text-faint); font-style: italic; }
   background: color-mix(in srgb, currentColor 12%, var(--surface));
 }
 
+.footer {
+    text-align: center;
+    padding: 15px;
+    font-size: 14px;
+    color: #666;
+}
+
+
 /* ---------- category palette ----------
    applied directly via the category name as a class
    (e.g. class="badge food" / class="category-name food") */
