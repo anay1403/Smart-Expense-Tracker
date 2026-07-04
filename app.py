@@ -1,7 +1,8 @@
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_file, Response
 from werkzeug.security import generate_password_hash, check_password_hash
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import os
 import csv
 import io
@@ -9,7 +10,15 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_finance_key_for_sessions'
-DB_FILE = 'database.db'
+
+# Render (and most hosts) provide this as an env var when you attach a
+# Postgres database. Locally, set the same DATABASE_URL (copy the
+# "External Database URL" from your Render Postgres dashboard) so your
+# local runs and your live app share the SAME persistent database.
+DATABASE_URL = os.environ.get('DATABASE_URL')
+if DATABASE_URL and DATABASE_URL.startswith('postgres://'):
+    # psycopg2 wants 'postgresql://', Render sometimes gives 'postgres://'
+    DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://', 1)
 
 def login_required(f):
     @wraps(f)
@@ -19,31 +28,46 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+class PGConnWrapper:
+    """Thin wrapper so the rest of the app can keep calling
+    conn.execute(query, params).fetchone()/.fetchall(), same as the old
+    sqlite3 code did, instead of rewriting every call site to use a
+    separate cursor object."""
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query, params=None):
+        cur = self._conn.cursor()
+        cur.execute(query, params or ())
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
+
 def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Create a free Postgres database on Render "
+            "(or locally) and set the DATABASE_URL environment variable."
+        )
+    raw_conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    return PGConnWrapper(raw_conn)
 
 def init_db():
     conn = get_db_connection()
-    conn.execute('''
+    cur = conn.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL
         )
     ''')
-    try:
-        conn.execute('ALTER TABLE expenses ADD COLUMN user_id INTEGER DEFAULT 1')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute('ALTER TABLE user_profile ADD COLUMN user_id INTEGER DEFAULT 1')
-    except sqlite3.OperationalError:
-        pass
-    conn.execute('''
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS expenses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL DEFAULT 1,
             description TEXT NOT NULL,
             amount REAL NOT NULL,
@@ -51,18 +75,31 @@ def init_db():
             date_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
-    conn.execute('''
+    cur.execute('''
         CREATE TABLE IF NOT EXISTS user_profile (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INTEGER NOT NULL DEFAULT 1,
             monthly_salary REAL DEFAULT 0
         )
     ''')
-    if not conn.execute('SELECT * FROM users WHERE id = 1').fetchone():
-        conn.execute('INSERT INTO users (id, username, password) VALUES (1, "admin", ?)', (generate_password_hash("admin"),))
-    if not conn.execute('SELECT * FROM user_profile WHERE user_id = 1').fetchone():
-        conn.execute('INSERT INTO user_profile (user_id, monthly_salary) VALUES (1, 0)')
+    cur.execute("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1")
+    cur.execute("ALTER TABLE user_profile ADD COLUMN IF NOT EXISTS user_id INTEGER DEFAULT 1")
+
+    cur.execute('SELECT * FROM users WHERE id = 1')
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO users (id, username, password) VALUES (1, %s, %s) ON CONFLICT (id) DO NOTHING",
+            ("admin", generate_password_hash("admin"))
+        )
+        # Keep the auto-increment sequence in sync since we inserted an explicit id
+        cur.execute("SELECT setval('users_id_seq', (SELECT MAX(id) FROM users))")
+
+    cur.execute('SELECT * FROM user_profile WHERE user_id = 1')
+    if not cur.fetchone():
+        cur.execute('INSERT INTO user_profile (user_id, monthly_salary) VALUES (1, 0)')
+
     conn.commit()
+    cur.close()
     conn.close()
 
 with app.app_context():
@@ -74,15 +111,15 @@ def register():
         username = request.form['username']
         password = request.form['password']
         conn = get_db_connection()
-        user_exists = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        user_exists = conn.execute('SELECT * FROM users WHERE username = %s', (username,)).fetchone()
         if user_exists:
             flash("Username already exists!")
         else:
-            conn.execute('INSERT INTO users (username, password) VALUES (?, ?)',
+            conn.execute('INSERT INTO users (username, password) VALUES (%s, %s)',
                          (username, generate_password_hash(password)))
             conn.commit()
-            new_user = conn.execute('SELECT id FROM users WHERE username = ?', (username,)).fetchone()
-            conn.execute('INSERT INTO user_profile (user_id, monthly_salary) VALUES (?, 0)', (new_user['id'],))
+            new_user = conn.execute('SELECT id FROM users WHERE username = %s', (username,)).fetchone()
+            conn.execute('INSERT INTO user_profile (user_id, monthly_salary) VALUES (%s, 0)', (new_user['id'],))
             conn.commit()
             conn.close()
             flash("Registration successful. Please log in.")
@@ -96,7 +133,7 @@ def login():
         username = request.form['username']
         password = request.form['password']
         conn = get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        user = conn.execute('SELECT * FROM users WHERE username = %s', (username,)).fetchone()
         conn.close()
         if user and check_password_hash(user['password'], password):
             session['user_id'] = user['id']
@@ -122,9 +159,9 @@ def index():
 
     # Get all distinct months for the dropdown
     month_rows = conn.execute('''
-        SELECT DISTINCT strftime('%Y-%m', date_created) as month
+        SELECT DISTINCT to_char(date_created, 'YYYY-MM') as month
         FROM expenses
-        WHERE user_id = ?
+        WHERE user_id = %s
         ORDER BY month DESC
     ''', (user_id,)).fetchall()
     available_months = [row['month'] for row in month_rows if row['month']]
@@ -134,18 +171,22 @@ def index():
         available_months.insert(0, current_month)
 
     expenses = conn.execute(
-        "SELECT * FROM expenses WHERE user_id = ? AND strftime('%Y-%m', date_created) = ? ORDER BY date_created DESC",
+        """SELECT id, user_id, description, amount, category,
+                  to_char(date_created, 'YYYY-MM-DD HH24:MI:SS') as date_created
+           FROM expenses
+           WHERE user_id = %s AND to_char(date_created, 'YYYY-MM') = %s
+           ORDER BY date_created DESC""",
         (user_id, selected_month)
     ).fetchall()
 
     summary_rows = conn.execute('''
         SELECT category, SUM(amount) as total
         FROM expenses
-        WHERE user_id = ? AND strftime('%Y-%m', date_created) = ?
+        WHERE user_id = %s AND to_char(date_created, 'YYYY-MM') = %s
         GROUP BY category
     ''', (user_id, selected_month)).fetchall()
 
-    salary_row = conn.execute('SELECT monthly_salary FROM user_profile WHERE user_id = ? LIMIT 1', (user_id,)).fetchone()
+    salary_row = conn.execute('SELECT monthly_salary FROM user_profile WHERE user_id = %s LIMIT 1', (user_id,)).fetchone()
     salary = salary_row['monthly_salary'] if salary_row else 0
     conn.close()
 
@@ -203,7 +244,7 @@ def set_salary():
     month = request.form.get('month', datetime.now().strftime('%Y-%m'))
     if salary:
         conn = get_db_connection()
-        conn.execute('UPDATE user_profile SET monthly_salary = ? WHERE user_id = ?', (float(salary), session['user_id']))
+        conn.execute('UPDATE user_profile SET monthly_salary = %s WHERE user_id = %s', (float(salary), session['user_id']))
         conn.commit()
         conn.close()
     return redirect(url_for('index', month=month))
@@ -219,10 +260,10 @@ def add():
         if description and amount and category:
             conn = get_db_connection()
             if expense_date:
-                conn.execute('INSERT INTO expenses (user_id, description, amount, category, date_created) VALUES (?, ?, ?, ?, ?)',
+                conn.execute('INSERT INTO expenses (user_id, description, amount, category, date_created) VALUES (%s, %s, %s, %s, %s)',
                              (session['user_id'], description, float(amount), category, expense_date + ' 00:00:00'))
             else:
-                conn.execute('INSERT INTO expenses (user_id, description, amount, category) VALUES (?, ?, ?, ?)',
+                conn.execute('INSERT INTO expenses (user_id, description, amount, category) VALUES (%s, %s, %s, %s)',
                              (session['user_id'], description, float(amount), category))
             conn.commit()
             conn.close()
@@ -234,7 +275,7 @@ def add():
 def delete(id):
     month = request.form.get('month', datetime.now().strftime('%Y-%m'))
     conn = get_db_connection()
-    conn.execute('DELETE FROM expenses WHERE id = ? AND user_id = ?', (id, session['user_id']))
+    conn.execute('DELETE FROM expenses WHERE id = %s AND user_id = %s', (id, session['user_id']))
     conn.commit()
     conn.close()
     return redirect(url_for('index', month=month))
@@ -246,7 +287,11 @@ def download_csv():
     month = request.args.get('month', datetime.now().strftime('%Y-%m'))
     conn = get_db_connection()
     expenses = conn.execute(
-        "SELECT * FROM expenses WHERE user_id = ? AND strftime('%Y-%m', date_created) = ? ORDER BY date_created DESC",
+        """SELECT id, user_id, description, amount, category,
+                  to_char(date_created, 'YYYY-MM-DD HH24:MI:SS') as date_created
+           FROM expenses
+           WHERE user_id = %s AND to_char(date_created, 'YYYY-MM') = %s
+           ORDER BY date_created DESC""",
         (user_id, month)
     ).fetchall()
     conn.close()
@@ -293,17 +338,21 @@ def download_pdf():
 
     conn = get_db_connection()
     expenses = conn.execute(
-        "SELECT * FROM expenses WHERE user_id = ? AND strftime('%Y-%m', date_created) = ? ORDER BY date_created DESC",
+        """SELECT id, user_id, description, amount, category,
+                  to_char(date_created, 'YYYY-MM-DD HH24:MI:SS') as date_created
+           FROM expenses
+           WHERE user_id = %s AND to_char(date_created, 'YYYY-MM') = %s
+           ORDER BY date_created DESC""",
         (user_id, month)
     ).fetchall()
     summary_rows = conn.execute('''
         SELECT category, SUM(amount) as total
         FROM expenses
-        WHERE user_id = ? AND strftime('%Y-%m', date_created) = ?
+        WHERE user_id = %s AND to_char(date_created, 'YYYY-MM') = %s
         GROUP BY category
         ORDER BY total DESC
     ''', (user_id, month)).fetchall()
-    salary_row = conn.execute('SELECT monthly_salary FROM user_profile WHERE user_id = ? LIMIT 1', (user_id,)).fetchone()
+    salary_row = conn.execute('SELECT monthly_salary FROM user_profile WHERE user_id = %s LIMIT 1', (user_id,)).fetchone()
     salary = salary_row['monthly_salary'] if salary_row else 0
     conn.close()
 
