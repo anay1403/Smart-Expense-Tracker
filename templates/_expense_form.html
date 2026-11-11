@@ -1,0 +1,50 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+{% for msg_category, message in messages %}
+<div class="advice-box {{ 'info' if msg_category == 'info' else 'warning' }}" style="margin-top: 0; margin-bottom: 1.25rem;">
+    <p>{{ message }}</p>
+</div>
+{% endfor %}
+{% endif %}
+{% endwith %}
+
+<form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if month %}
+    <input type="hidden" name="month" value="{{ month }}">
+    {% endif %}
+    <div class="form-group">
+        <label for="description">Description (e.g., Groceries)</label>
+        <input type="text" id="description" name="description" required placeholder="What did you buy?" value="{{ description|default('') }}">
+    </div>
+
+    <div class="form-group">
+        <label for="amount">Amount (&#8377;)</label>
+        <input type="number" step="0.01" min="0.01" id="amount" name="amount" required placeholder="0.00" value="{{ amount|default('') }}">
+    </div>
+
+    <div class="form-group">
+        <label for="category">Category</label>
+        <select id="category" name="category" required>
+            <option value="" disabled {% if not category %}selected{% endif %}>Select a category</option>
+            <option value="Grocery" {% if category == 'Grocery' %}selected{% endif %}>Grocery</option>
+            <option value="Food" {% if category == 'Food' %}selected{% endif %}>Food / Dining</option>
+            <option value="Rent" {% if category == 'Rent' %}selected{% endif %}>Rent</option>
+            <option value="Medical" {% if category == 'Medical' %}selected{% endif %}>Medical</option>
+            <option value="Others" {% if category == 'Others' %}selected{% endif %}>Others</option>
+            <option disabled>--- Investing / Saving ---</option>
+            <option value="Assets" {% if category == 'Assets' %}selected{% endif %}>Gold / Assets</option>
+            <option value="Insurance" {% if category == 'Insurance' %}selected{% endif %}>Insurance</option>
+            <option value="Savings" {% if category == 'Savings' %}selected{% endif %}>Cash Savings / FD</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="expense_date">Date <span style="font-weight:400;color:#888;">(leave blank for today)</span></label>
+        <input type="date" id="expense_date" name="expense_date"
+            max="{{ now_date }}"
+            value="{{ expense_date|default(now_date|default('')) }}">
+    </div>
+
+    <button type="submit" class="btn btn-primary btn-block">{{ submit_label|default('Log Expense') }}</button>
+</form>

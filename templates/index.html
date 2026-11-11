@@ -77,6 +77,10 @@
             background: #8C2F39;
             color: #fff;
         }
+        .btn-dl-xlsx {
+            background: #1B2A4A;
+            color: #E4D5A0;
+        }
         .dl-icon { font-size: 0.95rem; }
     </style>
 </head>
@@ -87,10 +91,28 @@
             <h1>Finance Tracker</h1>
             <div class="header-actions">
                 <span class="user-tag">User: {{ session['username'] }}</span>
+                <a href="{{ url_for('analytics') }}" class="btn btn-secondary">Analytics</a>
+                <a href="{{ url_for('recurring') }}" class="btn btn-secondary">Recurring</a>
                 <a href="{{ url_for('add') }}" class="btn btn-primary">Add Expense</a>
                 <a href="{{ url_for('logout') }}" class="btn btn-secondary">Logout</a>
             </div>
         </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="advice-box {{ category if category in ('info', 'caution') else 'warning' }}" style="margin-top: 0; margin-bottom: 1rem;">
+            <p>{{ message }}</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% for alert in budget_alerts %}
+        <div class="advice-box {{ alert.level }}" style="margin-top: 0; margin-bottom: 1rem;">
+            <p><strong>Budget Alert:</strong> {{ alert.message }}</p>
+        </div>
+        {% endfor %}
 
         <!-- Month Filter -->
         <div class="month-bar">
@@ -107,7 +129,7 @@
             <span class="month-label-display">{{ month_label }}</span>
         </div>
 
-        <!-- Download Buttons -->
+        <!-- Download Buttons & Excel Import -->
         <div class="download-bar">
             <a class="btn-download btn-dl-csv" href="{{ url_for('download_csv', month=selected_month) }}">
                 <span class="dl-icon">⬇</span> Download CSV
@@ -115,7 +137,21 @@
             <a class="btn-download btn-dl-pdf" href="{{ url_for('download_pdf', month=selected_month) }}">
                 <span class="dl-icon">⬇</span> Download PDF Report
             </a>
+            <a class="btn-download btn-dl-xlsx" href="{{ url_for('download_xlsx', month=selected_month) }}">
+                <span class="dl-icon">⬇</span> Download Excel (.xlsx)
+            </a>
         </div>
+
+        <details class="excel-import-details">
+            <summary>⬆ Import Expenses from Excel (.xlsx)</summary>
+            <form action="{{ url_for('import_xlsx') }}" method="POST" enctype="multipart/form-data" class="excel-import-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="month" value="{{ selected_month }}">
+                <input type="file" name="xlsx_file" accept=".xlsx" required>
+                <button type="submit" class="btn btn-primary btn-sm">Import .xlsx</button>
+            </form>
+            <p class="excel-import-hint">Expected columns: Date (YYYY-MM-DD), Description, Category, Amount.</p>
+        </details>
 
         <section class="salary-card">
             <h2>Monthly Financial Overview — {{ month_label }}</h2>
@@ -157,8 +193,9 @@
             </div>
 
             <form action="{{ url_for('set_salary') }}" method="POST" class="salary-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="month" value="{{ selected_month }}">
-                <input type="number" step="0.01" name="salary" placeholder="Update Monthly Salary" required>
+                <input type="number" step="0.01" min="0" name="salary" placeholder="Update Salary for {{ month_label }}" required>
                 <button type="submit" class="btn btn-sm btn-primary">Update</button>
             </form>
 
@@ -202,6 +239,46 @@
                     <p class="empty-state">No investments or savings recorded yet.</p>
                     {% endif %}
                 </section>
+
+                <section class="summary-card">
+                    <h2>Category Budgets</h2>
+                    <form action="{{ url_for('set_budget') }}" method="POST" class="budget-form">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="month" value="{{ selected_month }}">
+                        <select name="category" required>
+                            <option value="" disabled selected>Category</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" step="0.01" min="0.01" name="monthly_limit" placeholder="Cap (&#8377;)" required>
+                        <button type="submit" class="btn btn-primary btn-sm">Set</button>
+                    </form>
+
+                    {% if budgets %}
+                    {% for b in budgets %}
+                    <div class="budget-item">
+                        <div class="budget-header">
+                            <span class="category-name {{ b.category|lower }}">{{ b.category }}</span>
+                            <span>
+                                <strong>&#8377;{{ "%.2f"|format(b.spent) }}</strong> / &#8377;{{ "%.2f"|format(b.monthly_limit) }}
+                                ({{ "%.0f"|format(b.raw_pct) }}%)
+                            </span>
+                            <form action="{{ url_for('delete_budget', id=b.id) }}" method="POST" style="display:inline;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="month" value="{{ selected_month }}">
+                                <button type="submit" class="btn btn-danger btn-sm" title="Remove budget">×</button>
+                            </form>
+                        </div>
+                        <div class="budget-track">
+                            <div class="budget-fill {{ b.status }}" style="width: {{ b.pct }}%;"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <p class="empty-state">No category budgets set yet.</p>
+                    {% endif %}
+                </section>
             </div>
 
             <section class="expenses-card">
@@ -226,11 +303,15 @@
                                 <td><span class="badge {{ expense.category|lower }}">{{ expense.category }}</span></td>
                                 <td class="amount">&#8377;{{ "%.2f"|format(expense.amount) }}</td>
                                 <td>
-                                    <form action="{{ url_for('delete', id=expense.id) }}" method="POST" style="display:inline;">
-                                        <input type="hidden" name="month" value="{{ selected_month }}">
-                                        <button type="submit" class="btn btn-danger btn-sm"
-                                            onclick="return confirm('Delete this expense?');">Delete</button>
-                                    </form>
+                                    <div class="action-buttons">
+                                        <a href="{{ url_for('edit', id=expense.id, month=selected_month) }}" class="btn btn-secondary btn-sm">Edit</a>
+                                        <form action="{{ url_for('delete', id=expense.id) }}" method="POST" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <input type="hidden" name="month" value="{{ selected_month }}">
+                                            <button type="submit" class="btn btn-danger btn-sm"
+                                                onclick="return confirm('Delete this expense?');">Delete</button>
+                                        </form>
+                                    </div>
                                 </td>
                             </tr>
                             {% endfor %}

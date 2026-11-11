@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recurring Transactions - Finance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header class="topbar">
+            <h1>Recurring Transactions</h1>
+            <div class="header-actions">
+                <a href="{{ url_for('analytics') }}" class="btn btn-secondary">Analytics</a>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Back to Dashboard</a>
+            </div>
+        </header>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="advice-box {{ 'info' if category == 'info' else 'warning' }}" style="margin-top:0; margin-bottom:1.25rem;">
+            <p>{{ message }}</p>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="dashboard-grid">
+            <section class="summary-card">
+                <h2>Add Monthly Recurring Item</h2>
+                <form method="POST">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="description">Description (e.g., Monthly Rent, SIP, Netflix)</label>
+                        <input type="text" id="description" name="description" required placeholder="What repeats every month?">
+                    </div>
+                    <div class="form-group">
+                        <label for="amount">Amount (&#8377;)</label>
+                        <input type="number" step="0.01" min="0.01" id="amount" name="amount" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label for="category">Category</label>
+                        <select id="category" name="category" required>
+                            <option value="" disabled selected>Select category</option>
+                            {% for cat in categories %}
+                            <option value="{{ cat }}">{{ cat }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="day_of_month">Day of Month (1–31)</label>
+                        <input type="number" min="1" max="31" id="day_of_month" name="day_of_month" value="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="start_month">Start Month</label>
+                        <input type="month" id="start_month" name="start_month" value="{{ current_month }}" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Save Recurring Rule</button>
+                </form>
+            </section>
+
+            <section class="expenses-card">
+                <h2>Active &amp; Paused Rules</h2>
+                {% if rules %}
+                <div class="table-container">
+                    <table class="expenses-table">
+                        <thead>
+                            <tr>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                                <th>Schedule</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for rule in rules %}
+                            <tr>
+                                <td>{{ rule.description }}</td>
+                                <td><span class="badge {{ rule.category|lower }}">{{ rule.category }}</span></td>
+                                <td class="amount">&#8377;{{ "%.2f"|format(rule.amount) }}</td>
+                                <td>Day {{ rule.day_of_month }} (from {{ rule.start_month }})</td>
+                                <td>
+                                    {% if rule.active %}
+                                    <span class="badge savings">Active ({{ rule.logged_count }} logged)</span>
+                                    {% else %}
+                                    <span class="badge misc">Paused ({{ rule.logged_count }} logged)</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <form action="{{ url_for('toggle_recurring', id=rule.id) }}" method="POST" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-secondary btn-sm">
+                                                {{ 'Pause' if rule.active else 'Resume' }}
+                                            </button>
+                                        </form>
+                                        <form action="{{ url_for('delete_recurring', id=rule.id) }}" method="POST" style="display:inline;">
+                                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                            <button type="submit" class="btn btn-danger btn-sm"
+                                                onclick="return confirm('Delete this recurring rule?');">Delete</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="empty-state">No recurring transactions yet. Add rent, SIPs, or subscriptions on the left to auto-log them monthly.</p>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+</body>
+</html>

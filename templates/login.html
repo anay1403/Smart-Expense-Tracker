@@ -16,10 +16,10 @@
             <h1>Login</h1>
         </header>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
-        {% for message in messages %}
-        <div class="advice-box warning">
+        {% for category, message in messages %}
+        <div class="advice-box {{ 'info' if category == 'info' else 'warning' }}">
             <p>{{ message }}</p>
         </div>
         {% endfor %}
@@ -28,6 +28,7 @@
 
         <section class="form-card">
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" required placeholder="Enter username">

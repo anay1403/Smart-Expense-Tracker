@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Month Analytics - Finance Tracker</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <header class="topbar">
+            <h1>Analytics &amp; Trends</h1>
+            <div class="header-actions">
+                <a href="{{ url_for('recurring') }}" class="btn btn-secondary">Recurring</a>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">Back to Dashboard</a>
+            </div>
+        </header>
+
+        <div class="month-bar">
+            <label>Horizon:</label>
+            <form method="GET" action="{{ url_for('analytics') }}" style="display:inline-flex; gap:8px;">
+                <select name="months" onchange="this.form.submit()">
+                    <option value="3" {% if num_months == 3 %}selected{% endif %}>Last 3 Months</option>
+                    <option value="6" {% if num_months == 6 %}selected{% endif %}>Last 6 Months</option>
+                    <option value="12" {% if num_months == 12 %}selected{% endif %}>Last 12 Months</option>
+                </select>
+            </form>
+            <span class="month-label-display">{{ num_months }}-Month Financial Snapshot</span>
+        </div>
+
+        <section class="salary-card">
+            <h2>Averages Across {{ num_months }} Months</h2>
+            <div class="financial-stats stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                <div class="stat-box">
+                    <span class="stat-label">Avg Monthly Salary</span>
+                    <span class="stat-value">&#8377;{{ "%.2f"|format(summary.avg_salary) }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Avg Monthly Spending</span>
+                    <span class="stat-value">&#8377;{{ "%.2f"|format(summary.avg_spending) }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Avg Monthly Investing</span>
+                    <span class="stat-value" style="color: var(--cat-savings);">&#8377;{{ "%.2f"|format(summary.avg_investing) }}</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-label">Overall Saving Ratio</span>
+                    <span class="stat-value positive">{{ "%.1f"|format(summary.overall_saving_ratio) }}%</span>
+                </div>
+            </div>
+        </section>
+
+        <div class="analytics-charts-grid">
+            <section class="summary-card">
+                <h2>Income vs Spending vs Investing</h2>
+                <div class="chart-container">
+                    <canvas id="cashflowChart"></canvas>
+                </div>
+            </section>
+            <section class="summary-card">
+                <h2>Saving &amp; Spending Ratio (%)</h2>
+                <div class="chart-container">
+                    <canvas id="ratioChart"></canvas>
+                </div>
+            </section>
+        </div>
+
+        <div class="dashboard-grid">
+            <section class="summary-card">
+                <h2>Top Categories ({{ num_months }}M Total)</h2>
+                {% if category_totals %}
+                <ul class="summary-list">
+                    {% for item in category_totals %}
+                    <li>
+                        <span class="category-name {{ item.category|lower }}">{{ item.category }}</span>
+                        <span class="category-total">&#8377;{{ "%.2f"|format(item.total) }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="empty-state">No expenses recorded during this period.</p>
+                {% endif %}
+            </section>
+
+            <section class="expenses-card">
+                <h2>Month-by-Month Ledger</h2>
+                <div class="table-container">
+                    <table class="expenses-table">
+                        <thead>
+                            <tr>
+                                <th>Month</th>
+                                <th>Salary</th>
+                                <th>Spent</th>
+                                <th>Invested</th>
+                                <th>Liquid</th>
+                                <th>Saved %</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in series %}
+                            <tr>
+                                <td>{{ row.label }}</td>
+                                <td class="amount">&#8377;{{ "%.2f"|format(row.salary) }}</td>
+                                <td class="amount">&#8377;{{ "%.2f"|format(row.spending) }}</td>
+                                <td class="amount">&#8377;{{ "%.2f"|format(row.investing) }}</td>
+                                <td class="amount">{{ "₹%.2f"|format(row.liquid) }}</td>
+                                <td class="amount">{{ "%.1f"|format(row.saving_ratio) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const series = {{ series|tojson }};
+            const labels = series.map(r => r.label);
+
+            new Chart(document.getElementById('cashflowChart'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Salary', data: series.map(r => r.salary), backgroundColor: '#1B2A4A' },
+                        { label: 'Spending', data: series.map(r => r.spending), backgroundColor: '#8C2F39' },
+                        { label: 'Investing', data: series.map(r => r.investing), backgroundColor: '#2F6B4F' }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+
+            new Chart(document.getElementById('ratioChart'), {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Saving / Retained %',
+                            data: series.map(r => r.saving_ratio),
+                            borderColor: '#2F6B4F',
+                            backgroundColor: 'rgba(47, 107, 79, 0.15)',
+                            tension: 0.25,
+                            fill: true
+                        },
+                        {
+                            label: 'Spending %',
+                            data: series.map(r => r.spending_ratio),
+                            borderColor: '#8C2F39',
+                            backgroundColor: 'rgba(140, 47, 57, 0.1)',
+                            tension: 0.25,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true } }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
